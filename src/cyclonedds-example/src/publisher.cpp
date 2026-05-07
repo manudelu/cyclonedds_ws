@@ -1,9 +1,3 @@
-// ~/CycloneDDS/install/bin/idlc -l cxx Time.idl
-// ~/CycloneDDS/install/bin/idlc -l cxx Header.idl
-// ~/CycloneDDS/install/bin/idlc -l cxx JointState.idl
-// cmake .. -DCMAKE_PREFIX_PATH=$HOME/CycloneDDS/install
-// cmake --build . -j
-
 #include <iostream>
 #include <thread>
 #include <chrono>
