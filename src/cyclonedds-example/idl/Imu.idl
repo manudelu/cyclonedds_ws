@@ -1,0 +1,23 @@
+#include "Quaternion.idl"
+#include "Vector3.idl"
+#include "Header.idl"
+
+module advrf_msgs {
+  module msg {
+    module dds_ {
+      struct Imu_ {
+        std_msgs::msg::dds_::Header_ header;
+
+        geometry_msgs::msg::dds_::Vector3_ linear_acceleration;
+        geometry_msgs::msg::dds_::Vector3_ angular_velocity;
+        geometry_msgs::msg::dds_::Quaternion_ orientation;
+
+        uint32 imu_ts;
+        uint32 temperature;
+        uint32 digital_in;
+        uint32 fault;
+        uint32 rtt;
+      };
+    };
+  };
+};

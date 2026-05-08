@@ -1,0 +1,19 @@
+#include "Wrench.idl"
+#include "Header.idl"
+
+module advrf_msgs {
+    module msg {
+        module dds_ {
+            struct ForceTorque_ {
+                std_msgs::msg::dds_::Header_ header;
+                
+                geometry_msgs::msg::dds_::Wrench_ wrench;
+
+                uint32 fault;
+                uint32 rtt;
+                uint32 op_idx_ack;
+                float aux;
+            };
+        };
+    };
+};

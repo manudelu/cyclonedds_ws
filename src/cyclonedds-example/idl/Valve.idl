@@ -1,0 +1,26 @@
+#include "Header.idl"
+
+module advrf_msgs {
+    module msg {
+        module dds_ {
+            struct Valve_ {
+                std_msgs::msg::dds_::Header_ header;
+                
+                sequence<string> name;
+                sequence<float> encoder_position;
+                sequence<float> force;
+                sequence<float> pressure1;
+                sequence<float> pressure2;
+                sequence<float> current;
+                sequence<float> temperature;
+                sequence<uint32> fault;
+                sequence<uint32> rtt;
+                sequence<uint32> op_idx_ack;
+                sequence<float> aux;
+                sequence<float> current_ref_fb;
+                sequence<float> position_ref_fb;
+                sequence<float> force_ref_fb;
+            };
+        };
+    };
+};

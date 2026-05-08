@@ -1,0 +1,13 @@
+#include "Vector3.idl"
+
+module geometry_msgs {
+  module msg {
+    module dds_ {
+      @final
+      struct Wrench_ {
+        geometry_msgs::msg::dds_::Vector3_ force;
+        geometry_msgs::msg::dds_::Vector3_ torque;
+      };
+    };
+  };
+};

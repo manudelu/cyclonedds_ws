@@ -1,58 +1,88 @@
 #include <iostream>
-#include <thread>
-#include <chrono>
+#include <vector>
+#include <map>
+#include <fcntl.h>
+#include <unistd.h>
 
-#include <dds/dds.hpp>
-#include "Time.hpp"
-#include "Header.hpp"
-#include "JointState.hpp"
+#include "pipe_discovery.hpp"  
+#include "robot_config.hpp"
+#include "yaml_loader.hpp"
+#include "pdo_utils.hpp"
+#include "dds_publisher.hpp"
 
-int DOMAIN_ID {0};
+struct JointHandle {
+    int fd;
+    size_t index; 
+    std::string name;
+};
 
 int main(int argc, char** argv) {
-
-    dds::domain::DomainParticipant dp(DOMAIN_ID);
-    dds::topic::Topic<::sensor_msgs::msg::dds_::JointState_> topic(dp, "rt/advrf/spot/joint_states");
-    dds::pub::Publisher pub(dp);
-    dds::pub::DataWriter<::sensor_msgs::msg::dds_::JointState_> writer(
-        pub, topic, dds::pub::qos::DataWriterQos() 
-            << dds::core::policy::Reliability::BestEffort()
-            << dds::core::policy::History::KeepLast(1)
-    );
-
-    ::sensor_msgs::msg::dds_::JointState_ msg;
-    msg.name() = { "front_left_hip_x",  "front_left_hip_y",  "front_left_knee",
-                   "front_right_hip_x", "front_right_hip_y", "front_right_knee",
-                   "rear_left_hip_x",   "rear_left_hip_y",   "rear_left_knee",
-                   "rear_right_hip_x",  "rear_right_hip_y",  "rear_right_knee" 
-    };
-    double pos = 0.0;
-    bool incrementing = true;
-    
-    while(true) {
-        auto now = std::chrono::system_clock::now();
-        auto duration = now.time_since_epoch();
-        auto seconds = std::chrono::duration_cast<std::chrono::seconds>(duration);
-        auto nanoseconds = std::chrono::duration_cast<std::chrono::nanoseconds>(duration - seconds);
-        msg.header().stamp().sec(static_cast<int32_t>(seconds.count()));
-        msg.header().stamp().nanosec(static_cast<uint32_t>(nanoseconds.count()));
-        msg.header().frame_id("");
-        
-        if (incrementing) {
-            pos+=0.01;
-            if (pos > 0.3) incrementing = false;
-        }
-        else {
-            pos-=0.01;
-            if (pos < 0.0) incrementing = true;
-        }
-        msg.position() = {pos, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0};
-        msg.velocity().assign(12, 0.0);
-        msg.effort().assign(12, 0.0);
-        writer.write(msg);
-        std::cout << "Pose: " << msg.position()[0] << " on joint " <<  msg.name()[0] << '\n';
-        std::this_thread::sleep_for(std::chrono::milliseconds(100));
+    std::string config_path = (argc > 1) ? argv[1] : "/home/mdelucchi-iit.local/cyclonedds_ws/src/cyclonedds-example/config/robot.yaml";
+    LoadedConfig lc;
+    try {
+        lc = load_robot_config(config_path);
+    } catch (const std::exception& e) {
+        std::cerr << "Errore fatale config: " << e.what() << std::endl;
+        return -1;
     }
 
+    std::vector<std::string> joint_names;
+    for (const auto& j : lc.cfg.joints) {
+        joint_names.push_back(j.name);
+    }
+
+    JointStatePublisher js_pub;
+    if (!js_pub.init(joint_names, lc.cfg.name, lc.cfg.domain)) {
+        return -1;
+    }
+
+    std::vector<JointHandle> active_joints;
+    for (size_t i = 0; i < lc.cfg.joints.size(); ++i) {
+        auto& j = lc.cfg.joints[i];
+        if (j.pipe.has_value()) {
+            std::string full_path = XDDP_PREFIX + j.pipe.value();
+            int fd = open(full_path.c_str(), O_RDONLY | O_NONBLOCK);
+            if (fd >= 0) {
+                active_joints.push_back({fd, i, j.name});
+                std::cout << "[Main] Giunto collegato: " << j.name << " su " << j.pipe.value() << std::endl;
+            }
+        }
+    }
+
+    joint_state::rt_joint_state_msg js_msg(joint_names.size());
+    motor::rt_motor motor_data; // Buffer per dati motori extra (temp, fault, etc)
+    uint8_t buf[1024];
+
+    std::cout << "Bridge avviato su Dominio " << lc.cfg.domain << ". In attesa di dati..." << std::endl;
+
+    while (true) {
+        bool updated = false;
+
+        for (auto& handle : active_joints) {
+            ssize_t n, last = -1;
+            while ((n = read(handle.fd, buf, sizeof(buf))) > 0) {
+                last = n;
+            }
+
+            if (last > 0) {
+                double p, v, e;
+                uint64_t ts;
+                if (pdo_utils::parse_joint_frame(buf, last, p, v, e, ts, motor_data)) {
+                    js_msg.header.timestamp_ns = ts;
+                    js_msg.positions[handle.index] = p;
+                    js_msg.velocities[handle.index] = v;
+                    js_msg.efforts[handle.index] = e;
+                    updated = true;
+                }
+            }
+        }
+
+        if (updated) {
+            js_pub.publish(js_msg);
+        }
+
+    }
+
+    for (auto& h : active_joints) close(h.fd);
     return 0;
 }

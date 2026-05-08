@@ -1,0 +1,32 @@
+#include "Header.idl"
+
+module advrf_msgs {
+  module msg {
+    module dds_ {
+      struct Motor_ {
+        std_msgs::msg::dds_::Header_ header;
+        
+        sequence<string>  name;
+        sequence<uint32>  statusword;
+        sequence<int32>   modes_of_op;
+        sequence<float>   motor_pos;
+        sequence<float>   motor_vel;
+        sequence<float>   link_pos;
+        sequence<float>   link_vel;
+        sequence<float>   current;
+        sequence<float>   torque;
+        sequence<float>   demanded_pos;
+        sequence<float>   demanded_vel;
+        sequence<float>   demanded_torque;
+        sequence<float>   demanded_current;
+        sequence<float>   control_effort;
+        sequence<float>   motor_temp;
+        sequence<int32>   drive_temp;
+        sequence<uint32>  error_code;
+        sequence<string>  error_report;
+        sequence<uint32>  fault;
+        sequence<uint32>  rtt;
+      };
+    };
+  };
+};

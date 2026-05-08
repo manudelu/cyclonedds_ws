@@ -1,0 +1,23 @@
+#include "Header.idl"
+
+module advrf_msgs {
+    module msg {
+        module dds_ {
+            struct Pump_ {
+                std_msgs::msg::dds_::Header_ header;
+                
+                float motor_current;
+                float motor_speed;
+                float pressure1;
+                float pressure2;
+                uint32 temperature;
+                uint32 mosfet_temperature;
+                int32 motor_temperature;
+                uint32 fault;
+                uint32 rtt;
+                uint32 op_idx_ack;
+                float aux;
+            };
+        };
+    };
+};

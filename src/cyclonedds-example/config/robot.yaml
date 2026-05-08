@@ -1,0 +1,39 @@
+robot:
+  name: spot  # Robot name, used as a prefix for ROS2 node and topic names
+  domain: ~   # ROS2 domain ID for isolating communication (default: 0)
+
+  rates:
+    joint_state_hz: ~   
+    motor_hz: ~         
+    valve_hz: ~          
+    imu_hz: ~            
+    force_torque_hz: ~   
+    power_board_hz: ~    
+    pump_hz: ~         
+  
+  joints:
+    - name: front_left_hip_x
+      ecat_id: 1
+      #type: valve # motor (default, rotational) or valve (prismatic)
+    - name: front_left_hip_y
+      ecat_id: 2
+    - name: front_left_knee
+      ecat_id: 3
+    - name: front_right_hip_x
+      ecat_id: 4
+    - name: front_right_hip_y
+      ecat_id: 5
+    - name: front_right_knee
+      ecat_id: 6
+    - name: rear_left_hip_x
+      ecat_id: 7
+    - name: rear_left_hip_y
+      ecat_id: 8
+    - name: rear_left_knee
+      ecat_id: 9
+    - name: rear_right_hip_x
+      ecat_id: 10
+    - name: rear_right_hip_y
+      ecat_id: 11
+    - name: rear_right_knee
+      ecat_id: 12

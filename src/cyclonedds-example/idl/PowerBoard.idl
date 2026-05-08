@@ -1,0 +1,23 @@
+#include "Header.idl"
+
+module advrf_msgs {
+  module msg {
+    module dds_ {
+      struct PowerBoard_ {
+        std_msgs::msg::dds_::Header_ header;
+        
+        float  v_batt;
+        float  v_load;
+        float  i_load;
+        float  temperature;
+        float  temp_batt;
+        float  temp_heatsink;
+        uint32 status;
+        uint32 fault;
+        uint32 rtt;
+        uint32 op_idx_ack;
+        float aux;
+      };
+    };
+  };
+};
