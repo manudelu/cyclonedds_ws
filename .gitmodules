@@ -4,3 +4,7 @@
 [submodule "src/cyclonedds-cxx"]
 	path = src/cyclonedds-cxx
 	url = https://github.com/eclipse-cyclonedds/cyclonedds-cxx.git
+[submodule "src/iceoryx"]
+	path = src/iceoryx
+	url = https://github.com/eclipse-iceoryx/iceoryx.git
+	branch = release_2.0
