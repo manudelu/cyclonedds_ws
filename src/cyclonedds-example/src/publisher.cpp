@@ -1,13 +1,3 @@
-// Terminal A
-// export CYCLONEDDS_URI=file:///home/embedded/cyclonedds_ws/src/cyclonedds-example/cyclonedds.xml
-// export LD_LIBRARY_PATH=~/cyclonedds_ws/install/lib/${LD_LIBRARY_PATH:+:$LD_LIBRARY_PATH}
-// cd cyclonedds_ws/build/cyclonedds_example
-// ./publisher
-
-// Terminal B
-// cd cyclonedds_ws/build/iceoryx/
-// ./iox-roudi -c /home/embedded/cyclonedds_ws/src/cyclonedds-example/iox_config.toml
-
 #include <iostream>
 #include <atomic>
 #include <cstring>
@@ -73,7 +63,6 @@ void* dds_worker(void* arg) {
 
     while (g_running.load(std::memory_order_relaxed)) {
 
-        // Subscriber //
         // Receive from DDS --> push to RT thread
         auto samples = reader.take(); // SysCall - recvmsg()
         for (auto const& s : samples) {
@@ -97,7 +86,6 @@ void* dds_worker(void* arg) {
             g_inbound.push(joint_state);
         }
 
-        // Publisher //
         // Drain outbound queue --> publish to DDS
         JointState cmd{};
         while (g_outbound.pop(cmd)) {
