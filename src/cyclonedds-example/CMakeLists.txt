@@ -27,7 +27,6 @@ separate_arguments(XENO_LDFLAGS)
 
 find_package(CycloneDDS REQUIRED)
 find_package(CycloneDDS-CXX REQUIRED)
-find_package(Boost REQUIRED)
 
 set(IDL_FILES 
     "idl/Time.idl" 
@@ -40,12 +39,16 @@ idlcxx_generate(
   FILES ${IDL_FILES}
 )
 
-add_executable(publisher src/publisher.cpp)
-target_compile_options(publisher PRIVATE ${XENO_CFLAGS})
-target_link_libraries(publisher
-  ${XENO_LDFLAGS}
-  CycloneDDS-CXX::ddscxx
-  sensor_msgs_types
-  Boost::boost
-  pthread
+add_executable(dds_process src/dds_process.cpp)
+target_link_libraries(dds_process
+    CycloneDDS-CXX::ddscxx
+    sensor_msgs_types
+    pthread rt
+)
+
+add_executable(rt_process src/rt_process.cpp)
+target_compile_options(rt_process PRIVATE ${XENO_CFLAGS})
+target_link_libraries(rt_process
+    ${XENO_LDFLAGS}
+    pthread rt
 )
