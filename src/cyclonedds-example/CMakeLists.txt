@@ -27,6 +27,7 @@ separate_arguments(XENO_LDFLAGS)
 
 find_package(CycloneDDS REQUIRED)
 find_package(CycloneDDS-CXX REQUIRED)
+find_package(Boost REQUIRED)
 
 set(IDL_FILES 
     "idl/Time.idl" 
@@ -45,5 +46,6 @@ target_link_libraries(publisher
   ${XENO_LDFLAGS}
   CycloneDDS-CXX::ddscxx
   sensor_msgs_types
+  Boost::boost
   pthread
 )
