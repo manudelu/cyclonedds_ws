@@ -11,7 +11,9 @@
 int32_t DOMAIN_ID {42};
 
 static std::atomic<bool> g_stop{false};
-void handle_sig(int) { g_stop = true; }
+void handle_sig(int) { 
+    g_stop = true; 
+}
 
 int main() {
     signal(SIGINT,  handle_sig);
@@ -44,19 +46,20 @@ int main() {
 
     // Set up DDS publisher and subscriber
     dds::domain::DomainParticipant dp(DOMAIN_ID);
-    dds::topic::Topic<::sensor_msgs::msg::dds_::JointState_> topic(dp, "rt/advrf/spot/joint_states");
-
+    
+    dds::topic::Topic<::sensor_msgs::msg::dds_::JointState_> topic_sub(dp, "rt/advrf/spot/joint_cmd");
     dds::sub::Subscriber sub(dp);
     dds::sub::qos::DataReaderQos rqos = dds::sub::qos::DataReaderQos()
         << dds::core::policy::Reliability::BestEffort()
         << dds::core::policy::History::KeepLast(1);
-    dds::sub::DataReader<::sensor_msgs::msg::dds_::JointState_> reader(sub, topic, rqos);
+    dds::sub::DataReader<::sensor_msgs::msg::dds_::JointState_> reader(sub, topic_sub, rqos);
 
+    dds::topic::Topic<::sensor_msgs::msg::dds_::JointState_> topic_pub(dp, "rt/advrf/spot/joint_state");
     dds::pub::Publisher pub(dp);
     dds::pub::qos::DataWriterQos wqos = dds::pub::qos::DataWriterQos()
         << dds::core::policy::Reliability::BestEffort()
         << dds::core::policy::History::KeepLast(1);
-    dds::pub::DataWriter<::sensor_msgs::msg::dds_::JointState_> writer(pub, topic, wqos);
+    dds::pub::DataWriter<::sensor_msgs::msg::dds_::JointState_> writer(pub, topic_pub, wqos);
 
     ::sensor_msgs::msg::dds_::JointState_ out_msg;
     out_msg.name() = {
@@ -71,43 +74,43 @@ int main() {
 
     // Startup handshake - DDS signals readiness only after its setup
     bridge->dds_ready.store(true, std::memory_order_release);
-    std::cout << "[DDS] Ready. Waiting for RT process...\n";
-    while (!bridge->rt_ready.load(std::memory_order_acquire) && !g_stop)
+    std::cout << "[DDS] Ready. Waiting for BOTH RT processes to connect...\n";
+
+    while ((!bridge->rt_client_ready.load(std::memory_order_acquire) || 
+            !bridge->rt_server_ready.load(std::memory_order_acquire)) && !g_stop)
         usleep(1000);
 
-    std::cout << "[DDS] Bridge active.\n";
-
-    const struct timespec dt{0, 500000}; // poll at 2 kHz
+    std::cout << "[DDS] All systems active. Bridge spinning at 2 kHz.\n";
+    const struct timespec dt{0, 500000};
 
     while (!g_stop) {
+        // Subscribe from ROS2 ----> Push data to RT domain
         auto samples = reader.take();
         for (auto const& s : samples) {
             if (!s.info().valid()) 
                 continue;
 
             const auto& msg = s.data();
-            JointState joint_state{};
-            joint_state.sec = msg.header().stamp().sec();
-            joint_state.nanosec = msg.header().stamp().nanosec();
-            const auto& pos = msg.position();
-            const auto& vel = msg.velocity();
-            const auto& eff = msg.effort();
+            JointState cmd{};
+            cmd.sec = msg.header().stamp().sec();
+            cmd.nanosec = msg.header().stamp().nanosec();
             for (size_t i = 0; i < 12; ++i) {
-                joint_state.position[i] = pos[i];
-                joint_state.velocity[i] = vel[i];
-                joint_state.effort[i]   = eff[i];
+                cmd.position[i] = (msg.position().size() > i) ? msg.position()[i] : 0.0;
+                cmd.velocity[i] = (msg.velocity().size() > i) ? msg.velocity()[i] : 0.0;
+                cmd.effort[i]   = (msg.effort().size() > i)   ? msg.effort()[i]   : 0.0;
             }
-            bridge->dds_to_rt.try_push(joint_state);
+            bridge->dds_to_client.try_push(cmd);
         }
 
-        JointState cmd{};
-        while (bridge->rt_to_dds.try_pop(cmd)) {
-            out_msg.header().stamp().sec(cmd.sec);
-            out_msg.header().stamp().nanosec(cmd.nanosec);
+        // Pop data from RT domain ---> Publish to ROS2
+        JointState joint_state{};
+        while (bridge->server_to_dds.try_pop(joint_state)) {
+            out_msg.header().stamp().sec(joint_state.sec);
+            out_msg.header().stamp().nanosec(joint_state.nanosec);
             for (int i = 0; i < 12; ++i) {
-                out_msg.position()[i] = cmd.position[i];
-                out_msg.velocity()[i] = cmd.velocity[i];
-                out_msg.effort()[i]   = cmd.effort[i];
+                out_msg.position()[i] = joint_state.position[i];
+                out_msg.velocity()[i] = joint_state.velocity[i];
+                out_msg.effort()[i]   = joint_state.effort[i];
             }
             writer.write(out_msg);
         }
@@ -117,7 +120,6 @@ int main() {
 
     std::cout << "[DDS] Shutting down.\n";
     bridge->~SharedBridge();
-
     munmap(ptr, sizeof(SharedBridge));
 
     // Unlink the shared memory object (removes /spot_rt_bridge from /dev/shm).

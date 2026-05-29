@@ -60,10 +60,12 @@ struct SPSCQueue {
 };
 
 struct SharedBridge {
-    SPSCQueue<JointState, 64> dds_to_rt;   
-    SPSCQueue<JointState, 64> rt_to_dds;  
+    SPSCQueue<JointState, 64> dds_to_client;   
+    SPSCQueue<JointState, 64> client_to_server;
+    SPSCQueue<JointState, 64> server_to_dds;  
     std::atomic<bool> dds_ready{false};
-    std::atomic<bool> rt_ready{false};
+    std::atomic<bool> rt_client_ready{false};
+    std::atomic<bool> rt_server_ready{false};
 };
 
 static constexpr const char* SHM_NAME = "/spot_rt_bridge";

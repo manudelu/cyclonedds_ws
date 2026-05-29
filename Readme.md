@@ -1,17 +1,27 @@
 # CycloneDDS (Xenomai hard real-time)
 
-Results
----------------
+How Does it Work
+--------------------
 
-A real-time experiment was conducted using a fully separated interprocess architecture based on POSIX shared memory and lock-free single-producer single-consumer (SPSC) queues. The objective was to evaluate **mode switch** behavior.
+Handshake
 
-Xenomai implements a dual-kernel architecture (hence, the CPU runs two kernel simultaneoulsy: the Linux kernel and the Xenomai real-time kernel, called Cobalt).
+* Starts the DDS process: Initializes the Shared Memory with shm_open() (---> /dev/shm/spot_rt_bridge), sets atomic flag dds_ready to true and starts a while waiting for the flags of the other two processes (real-time client and server) to become true.
+* The Real-Time Client and the Real-Time Server are started: They both open the Shared Memory object, then they enter in a blocking while loop checking for dds_ready flag. When DDS is ready, the Client sets the rt_client_ready atomic flag to true, and the Server sets the rt_server_ready atomic flag to true.
+* The entire pipeline unlocks.
 
-A mode switch is the transition of a thread from the real-time execution domain (Cobalt) to the Linux (non real-time) domain. This typically occurs when a real-time thread invokes a service that is not available in the real-time core, such as certain Linux system calls, I/O operations, or middleware paths that are not fully real-time compatible. When a mode switch happens, the thread temporarily leaves the deterministic real-time environment and is scheduled by the Linux kernel instead. This introduces additional latency and breaks real-time guarantees for the duration of the switch and the operations executed in the Linux domain. In practice, mode switches are important because they directly indicate violations of full real-time execution, and their frequency can be used as a metric to evaluate how “real-time safe” a software stack actually is under Xenomai/Cobalt.
+Command Flow: ROS2 to Motors
 
-The system was divided into two independent processes, a DDS/Linux process and a real-time Xenomai control process. The two processes communicate through a shared-memory bridge created with POSIX shared memory (shm_open, mmap) and custom lock-free SPSC queues. The shared data structures contain only fixed-size POD types and preallocated buffers. No dynamic allocation occurs during runtime inside the real-time process.
+* In ROS2 side start the publisher on topic /advrf/spot/joint_cmd (e.g., ros2 topic pub -1 /advrf/spot/joint_cmd sensor_msgs/msg/JointState "{position: [1.0, 2.0, 0.0, 0.0, 0.0, 0.0, 0.0, 1.0, 0.0, 0.0, 0.0, 0.0]}") . 
+* In DDS Process side, the CycloneDDS middleware extract the data from the .idl type, copies them in a struct (ros2-like JointState) and pushes the data to the client (through dds_to_client SPSC queue).
+* In the Real-Time Client side (1ms), every cycles it pops the data (from dds_to_client SPSC queue). If more than one data arrives, the while cycle drains the queue keeping only the freshest sample.
+* The client can then process this data and then push onto the second queue (client_to_server SPSC queue).
+* The Real-Time Server side (1ms, slightly higher priority) pops the data from the client (client_to_server SPSC queue) and takes the command and then sends it, for instance, to the real motor drives.
 
-In this configuration, no mode switches were observed in the Xenomai real-time process. All Linux syscalls, DDS middleware execution, socket operations, polling, and dynamic allocations are fully isolated inside the non real-time DDS process. The RT process never invokes Linux networking or DDS APIs directly and therefore remains entirely inside the Xenomai/Cobalt domain during execution.
+Telemetry Flow: Motors to ROS2
+
+* The server reads, for instance, the physical encoders (in the example it just simulates the data just received from the client), sets the timestamp and inserts data into the third queue (server_to_dds SPSC queue).
+* Then, the DDS process pops the data (from server_to_dds SPSC queue) and publish to ROS2 topic /advrf/spot/joint_state by inserting the popped data into the JointState struct.
+* Finally in ROS2, if you check with ros2 topic echo, you can see the data updated.
 
 Installation 
 --------------------

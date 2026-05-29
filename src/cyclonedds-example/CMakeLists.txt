@@ -43,12 +43,16 @@ add_executable(dds_process src/dds_process.cpp)
 target_link_libraries(dds_process
     CycloneDDS-CXX::ddscxx
     sensor_msgs_types
-    pthread rt
 )
 
-add_executable(rt_process src/rt_process.cpp)
-target_compile_options(rt_process PRIVATE ${XENO_CFLAGS})
-target_link_libraries(rt_process
+add_executable(rt_client src/rt_client.cpp)
+target_compile_options(rt_client PRIVATE ${XENO_CFLAGS})
+target_link_libraries(rt_client
     ${XENO_LDFLAGS}
-    pthread rt
+)
+
+add_executable(rt_server src/rt_server.cpp)
+target_compile_options(rt_server PRIVATE ${XENO_CFLAGS})
+target_link_libraries(rt_server
+    ${XENO_LDFLAGS}
 )

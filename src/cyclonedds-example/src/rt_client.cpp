@@ -22,7 +22,7 @@ int main() {
     // Open existing shared memory object and map it into the caller's address space
     int fd = shm_open(SHM_NAME, O_RDWR, 0666);
     if (fd < 0) { 
-        perror("shm_open (rt)"); 
+        perror("shm_open (rt client)"); 
         return 1; 
     }
 
@@ -30,62 +30,51 @@ int main() {
                      PROT_READ | PROT_WRITE, MAP_SHARED, fd, 0);
     close(fd);
     if (ptr == MAP_FAILED) { 
-        perror("mmap (rt)"); 
+        perror("mmap (rt client)"); 
         return 1; 
     }
 
     SharedBridge* bridge = reinterpret_cast<SharedBridge*>(ptr);
 
     // Wait for DDS process to be ready
-    std::cout << "[RT] Waiting for DDS process...\n";
+    std::cout << "[RT Client] Waiting for DDS process...\n";
     while (!bridge->dds_ready.load(std::memory_order_acquire) && !g_stop)
         usleep(1000);
 
-    bridge->rt_ready.store(true, std::memory_order_release);
-    std::cout << "[RT] Bridge active. Running control loop.\n";
+    bridge->rt_client_ready.store(true, std::memory_order_release);
+    std::cout << "[RT Client] Linked. Running control loop.\n";
 
     // Become RT
     struct sched_param param;
     param.sched_priority = 80;
     pthread_setschedparam(pthread_self(), SCHED_FIFO, &param);
-    pthread_setname_np(pthread_self(), "RT_Control");
-
-    // Pre-allocate all working state before entering the loop
-    JointState state{};
-    JointState cmd{};
-    double pos = 0.0;
-    bool incremental = true;
+    pthread_setname_np(pthread_self(), "RT_Client");
 
     struct timespec next;
     clock_gettime(CLOCK_MONOTONIC, &next);
-    const long long period_ns = 1'000'000LL;
+    const long long period_ns = 1'000'000LL; // 1 ms
 
-    while (!g_stop.load(std::memory_order_relaxed)) {
+    JointState state{};
+    JointState cmd{};
 
-        // Drain inbound — keep freshest
+    while(!g_stop.load(std::memory_order_relaxed)) {
         JointState tmp{};
-        while (bridge->dds_to_rt.try_pop(tmp))
+        while (bridge->dds_to_client.try_pop(tmp))
             state = tmp;
 
-        // Control logic
-        if (incremental) { 
-            pos += 0.01; 
-            if (pos > 0.3) 
-                incremental = false; 
-        }
-        else { 
-            pos -= 0.01; 
-            if (pos < 0.0) 
-                incremental = true;  
+        for(int i = 0; i < 12; ++i) {
+            cmd.position[i] = state.position[i];
+            cmd.velocity[i] = state.velocity[i];
+            cmd.effort[i]   = state.effort[i];
         }
 
         struct timespec now;
         clock_gettime(CLOCK_REALTIME, &now);
         cmd.sec = static_cast<int32_t>(now.tv_sec);
         cmd.nanosec = static_cast<uint32_t>(now.tv_nsec);
-        cmd.position[0] = pos;
 
-        bridge->rt_to_dds.try_push(cmd);
+        // Forward to RT server
+        bridge->client_to_server.try_push(cmd);
 
         next.tv_nsec += period_ns;
         if (next.tv_nsec >= 1'000'000'000L) {
@@ -95,9 +84,9 @@ int main() {
         clock_nanosleep(CLOCK_MONOTONIC, TIMER_ABSTIME, &next, nullptr);
     }
 
-    std::cout << "[RT] Shutting down.\n";
-
+    std::cout << "[RT Client] Shutting down.\n";
     munmap(ptr, sizeof(SharedBridge));
-    
+
+
     return 0;
 }
