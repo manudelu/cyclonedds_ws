@@ -10,6 +10,7 @@ set(IDL_FILES
     "idl/Time.idl" 
     "idl/Header.idl" 
     "idl/JointState.idl"
+    "idl/Trigger.idl"
 )
 
 idlcxx_generate(
@@ -19,6 +20,12 @@ idlcxx_generate(
 
 add_executable(publisher src/publisher.cpp)
 target_link_libraries(publisher
+  CycloneDDS-CXX::ddscxx
+  sensor_msgs_types
+)
+
+add_executable(service src/service.cpp)
+target_link_libraries(service
   CycloneDDS-CXX::ddscxx
   sensor_msgs_types
 )

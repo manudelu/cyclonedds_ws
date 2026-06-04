@@ -1,0 +1,15 @@
+module std_srvs {
+  module srv {
+    module dds_ {
+        @final
+        struct Trigger_Request_ {
+        uint8 structure_needs_at_least_one_member;
+        };
+        @final
+        struct Trigger_Response_ {
+        boolean success;
+        string message;
+        };
+    };
+  };
+};

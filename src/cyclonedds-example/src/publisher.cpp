@@ -3,11 +3,12 @@
 #include <chrono>
 
 #include <dds/dds.hpp>
+#include "dds/dds.h" 
 #include "Time.hpp"
 #include "Header.hpp"
 #include "JointState.hpp"
 
-int DOMAIN_ID {0};
+int DOMAIN_ID {42};
 
 int main(int argc, char** argv) {
 
