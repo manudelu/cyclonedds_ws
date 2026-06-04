@@ -1,4 +1,6 @@
 #include "shared_types.hpp"
+#include "motor.pb.h"
+
 #include <sys/mman.h>
 #include <sys/stat.h>
 #include <fcntl.h>
@@ -7,6 +9,7 @@
 #include <pthread.h>
 #include <sched.h>
 #include <time.h>
+#include <cstring>
 #include <iostream>
 
 static std::atomic<bool> g_stop{false};
@@ -51,8 +54,19 @@ int main() {
     pthread_setname_np(pthread_self(), "RT_Control");
 
     // Pre-allocate all working state before entering the loop
-    JointState state{};
-    JointState cmd{};
+
+    // Outbound
+    iit::advrf::MotorState out_state;
+    out_state.mutable_motors()->Reserve(12);
+    for (int i = 0; i < 12; ++i)
+        out_state.add_motors();
+
+    // Inbound
+    iit::advrf::MotorCmd in_cmd;
+
+    uint8_t ser_buf[PROTO_MAX_BYTES];
+    ProtoSlot slot{};
+
     double pos = 0.0;
     bool incremental = true;
 
@@ -63,9 +77,11 @@ int main() {
     while (!g_stop.load(std::memory_order_relaxed)) {
 
         // Drain inbound — keep freshest
-        JointState tmp{};
-        while (bridge->dds_to_rt.try_pop(tmp))
-            state = tmp;
+        ProtoSlot in_slot{};
+        while (bridge->dds_to_rt.try_pop(in_slot)) {
+            if (in_slot.size > 0 && in_slot.size <= PROTO_MAX_BYTES)
+                in_cmd.ParseFromArray(in_slot.data, static_cast<int>(in_slot.size));
+        }
 
         // Control logic
         if (incremental) { 
@@ -81,11 +97,22 @@ int main() {
 
         struct timespec now;
         clock_gettime(CLOCK_REALTIME, &now);
-        cmd.sec = static_cast<int32_t>(now.tv_sec);
-        cmd.nanosec = static_cast<uint32_t>(now.tv_nsec);
-        cmd.position[0] = pos;
+        out_state.set_sec(static_cast<int32_t>(now.tv_sec));
+        out_state.set_nanosec(static_cast<uint32_t>(now.tv_nsec));
 
-        bridge->rt_to_dds.try_push(cmd);
+        for (int i = 0; i < 12; ++i) {
+            out_state.mutable_motors(i)->set_link_pos(static_cast<float>(pos));
+            out_state.mutable_motors(i)->set_link_vel(0.0f);
+            out_state.mutable_motors(i)->set_torque(0.0f);
+        }
+
+        const int bytes = static_cast<int>(out_state.ByteSizeLong());
+        if (bytes > 0 && bytes <= static_cast<int>(PROTO_MAX_BYTES)) {
+            out_state.SerializeToArray(ser_buf, bytes);
+            slot.size = static_cast<uint32_t>(bytes);
+            std::memcpy(slot.data, ser_buf, bytes);
+            bridge->rt_to_dds.try_push(slot);
+        }
 
         next.tv_nsec += period_ns;
         if (next.tv_nsec >= 1'000'000'000L) {

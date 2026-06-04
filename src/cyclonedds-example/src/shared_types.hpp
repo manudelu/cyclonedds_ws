@@ -4,13 +4,11 @@
 #include <cstdint>
 #include <cstddef>
 
-// JointState struct - no dynamic allocation
-struct JointState {
-    int32_t sec;
-    uint32_t nanosec;
-    double position[12];
-    double velocity[12];
-    double effort[12];
+// Allocate more than 250bytes for headroom
+static constexpr size_t PROTO_MAX_BYTES = 512;
+struct ProtoSlot {
+    uint32_t size{0};
+    uint8_t  data[PROTO_MAX_BYTES]{};
 };
 
 template<typename T, size_t N>
@@ -60,8 +58,8 @@ struct SPSCQueue {
 };
 
 struct SharedBridge {
-    SPSCQueue<JointState, 64> dds_to_rt;   
-    SPSCQueue<JointState, 64> rt_to_dds;  
+    SPSCQueue<ProtoSlot, 64> dds_to_rt;   
+    SPSCQueue<ProtoSlot, 64> rt_to_dds;  
     std::atomic<bool> dds_ready{false};
     std::atomic<bool> rt_ready{false};
 };

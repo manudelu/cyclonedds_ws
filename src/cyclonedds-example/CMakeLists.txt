@@ -27,6 +27,7 @@ separate_arguments(XENO_LDFLAGS)
 
 find_package(CycloneDDS REQUIRED)
 find_package(CycloneDDS-CXX REQUIRED)
+find_package(Protobuf REQUIRED)
 
 set(IDL_FILES 
     "idl/Time.idl" 
@@ -39,16 +40,29 @@ idlcxx_generate(
   FILES ${IDL_FILES}
 )
 
-add_executable(dds_process src/dds_process.cpp)
+set(PROTO_FILES "protobuf/motor.proto") 
+protobuf_generate_cpp(PROTO_SRCS PROTO_HDRS ${PROTO_FILES})
+
+add_executable(dds_process 
+    src/dds_process.cpp
+    ${PROTO_SRCS}
+)
+target_include_directories(dds_process PRIVATE ${CMAKE_CURRENT_BINARY_DIR}) 
 target_link_libraries(dds_process
     CycloneDDS-CXX::ddscxx
     sensor_msgs_types
     pthread rt
+    protobuf::libprotobuf
 )
 
-add_executable(rt_process src/rt_process.cpp)
+add_executable(rt_process 
+    src/rt_process.cpp
+    ${PROTO_SRCS}
+)
 target_compile_options(rt_process PRIVATE ${XENO_CFLAGS})
+target_include_directories(rt_process PRIVATE ${CMAKE_CURRENT_BINARY_DIR}) 
 target_link_libraries(rt_process
     ${XENO_LDFLAGS}
     pthread rt
+    protobuf::libprotobuf
 )

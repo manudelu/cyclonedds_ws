@@ -1,10 +1,13 @@
 #include "shared_types.hpp"
+#include "motor.pb.h"
+
 #include <sys/mman.h>
 #include <sys/stat.h>
 #include <fcntl.h>
 #include <unistd.h>
 #include <signal.h>
 #include <iostream>
+
 #include <dds/dds.hpp>
 #include "JointState.hpp"
 
@@ -69,6 +72,18 @@ int main() {
     out_msg.velocity().assign(12, 0.0);
     out_msg.effort().assign(12, 0.0);
 
+    // Inbound
+    iit::advrf::MotorState in_state;
+
+    // Outbound
+    iit::advrf::MotorCmd out_cmd;
+    out_cmd.mutable_motors()->Reserve(12);
+    for (int i = 0; i < 12; ++i)
+        out_cmd.add_motors();
+
+    uint8_t ser_buf[PROTO_MAX_BYTES];
+    ProtoSlot slot{};
+
     // Startup handshake - DDS signals readiness only after its setup
     bridge->dds_ready.store(true, std::memory_order_release);
     std::cout << "[DDS] Ready. Waiting for RT process...\n";
@@ -86,28 +101,42 @@ int main() {
                 continue;
 
             const auto& msg = s.data();
-            JointState joint_state{};
-            joint_state.sec = msg.header().stamp().sec();
-            joint_state.nanosec = msg.header().stamp().nanosec();
+            out_cmd.set_sec(msg.header().stamp().sec());
+            out_cmd.set_nanosec(msg.header().stamp().nanosec());
             const auto& pos = msg.position();
             const auto& vel = msg.velocity();
             const auto& eff = msg.effort();
             for (size_t i = 0; i < 12; ++i) {
-                joint_state.position[i] = pos[i];
-                joint_state.velocity[i] = vel[i];
-                joint_state.effort[i]   = eff[i];
+                auto* m = out_cmd.mutable_motors(i);
+                m->set_pos_ref(static_cast<float>(pos[i]));
+                (void)vel;
+                (void)eff;
             }
-            bridge->dds_to_rt.try_push(joint_state);
+            
+            const int bytes = static_cast<int>(out_cmd.ByteSizeLong());
+            if (bytes > 0 && bytes <= static_cast<int>(PROTO_MAX_BYTES)) {
+                out_cmd.SerializeToArray(ser_buf, bytes);
+                slot.size = static_cast<uint32_t>(bytes);
+                std::memcpy(slot.data, ser_buf, bytes);
+                bridge->dds_to_rt.try_push(slot);
+            }
         }
 
-        JointState cmd{};
-        while (bridge->rt_to_dds.try_pop(cmd)) {
-            out_msg.header().stamp().sec(cmd.sec);
-            out_msg.header().stamp().nanosec(cmd.nanosec);
+        ProtoSlot in_slot{};
+        while (bridge->rt_to_dds.try_pop(in_slot)) {
+            if (in_slot.size == 0 || in_slot.size > PROTO_MAX_BYTES) 
+                continue;
+
+            if (!in_state.ParseFromArray(in_slot.data, static_cast<int>(in_slot.size))) 
+                continue;  
+
+            out_msg.header().stamp().sec(in_state.sec());
+            out_msg.header().stamp().nanosec(in_state.nanosec());
             for (int i = 0; i < 12; ++i) {
-                out_msg.position()[i] = cmd.position[i];
-                out_msg.velocity()[i] = cmd.velocity[i];
-                out_msg.effort()[i]   = cmd.effort[i];
+                const auto& m = in_state.motors(i);
+                out_msg.position()[i] = static_cast<double>(m.link_pos());
+                out_msg.velocity()[i] = static_cast<double>(m.link_vel());
+                out_msg.effort()[i]   = static_cast<double>(m.torque());
             }
             writer.write(out_msg);
         }
