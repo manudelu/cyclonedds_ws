@@ -1,5 +1,7 @@
 #include "shared_types.hpp"
+#include "shm_utils.hpp"
 #include "motor.pb.h"
+#include "imu.pb.h"
 
 #include <sys/mman.h>
 #include <sys/stat.h>
@@ -10,6 +12,7 @@
 
 #include <dds/dds.hpp>
 #include "JointState.hpp"
+#include "Imu.hpp"
 
 int32_t DOMAIN_ID {42};
 
@@ -20,67 +23,48 @@ int main() {
     signal(SIGINT,  handle_sig);
     signal(SIGTERM, handle_sig);
 
-    // Creates shared memory object in /dev/shm called /spot_rt_bridge
-    int fd = shm_open(SHM_NAME, O_CREAT | O_RDWR, 0666);
-    if (fd < 0) { 
-        perror("shm_open"); 
-        return 1; 
-    }
+    SharedMemoryClient shm(SHM_NAME, sizeof(SharedBridge));
+    SharedBridge* bridge = shm.get<SharedBridge>();
 
-    // Set its size to the size of our structure
-    if (ftruncate(fd, sizeof(SharedBridge)) == -1) {
-        perror("ftruncate");
-        return 1;
-    }
-
-    // Map the object into the caller's address space
-    void* ptr = mmap(nullptr, sizeof(SharedBridge),
-                     PROT_READ | PROT_WRITE, MAP_SHARED, fd, 0);
-    close(fd);
-    if (ptr == MAP_FAILED) { 
-        perror("mmap"); 
-        return 1; 
-    }
-
-    // Placement-new to initialise atomics correctly in shared memory
-    SharedBridge* bridge = new(ptr) SharedBridge();
-
-    // Set up DDS publisher and subscriber
+    // Set up DDS publishers
     dds::domain::DomainParticipant dp(DOMAIN_ID);
-    dds::topic::Topic<::sensor_msgs::msg::dds_::JointState_> topic(dp, "rt/advrf/spot/joint_states");
-
-    dds::sub::Subscriber sub(dp);
-    dds::sub::qos::DataReaderQos rqos = dds::sub::qos::DataReaderQos()
-        << dds::core::policy::Reliability::BestEffort()
-        << dds::core::policy::History::KeepLast(1);
-    dds::sub::DataReader<::sensor_msgs::msg::dds_::JointState_> reader(sub, topic, rqos);
-
     dds::pub::Publisher pub(dp);
-    dds::pub::qos::DataWriterQos wqos = dds::pub::qos::DataWriterQos()
+    auto writer_qos = dds::pub::qos::DataWriterQos()
         << dds::core::policy::Reliability::BestEffort()
         << dds::core::policy::History::KeepLast(1);
-    dds::pub::DataWriter<::sensor_msgs::msg::dds_::JointState_> writer(pub, topic, wqos);
 
-    ::sensor_msgs::msg::dds_::JointState_ out_msg;
-    out_msg.name() = {
+    // JointState
+    dds::topic::Topic<::sensor_msgs::msg::dds_::JointState_> js_topic(dp, "rt/advrf/spot/joint_states");
+    dds::pub::DataWriter<::sensor_msgs::msg::dds_::JointState_> js_writer(pub, js_topic, writer_qos);
+
+    ::sensor_msgs::msg::dds_::JointState_ js_msg;
+    js_msg.name() = {
         "front_left_hip_x",  "front_left_hip_y",  "front_left_knee",
         "front_right_hip_x", "front_right_hip_y", "front_right_knee",
         "rear_left_hip_x",   "rear_left_hip_y",   "rear_left_knee",
         "rear_right_hip_x",  "rear_right_hip_y",  "rear_right_knee"
     };
-    out_msg.position().resize(12, 0.0);
-    out_msg.velocity().assign(12, 0.0);
-    out_msg.effort().assign(12, 0.0);
+    js_msg.position().resize(12, 0.0);
+    js_msg.velocity().assign(12, 0.0);
+    js_msg.effort().assign(12, 0.0);
 
-    // Inbound
+    // Imu
+    dds::topic::Topic<::sensor_msgs::msg::dds_::Imu_> imu_topic(dp, "rt/advrf/spot/imu");
+    dds::pub::DataWriter<::sensor_msgs::msg::dds_::Imu_> imu_writer(pub, imu_topic, writer_qos);
+
+    ::sensor_msgs::msg::dds_::Imu_ imu_msg;
+    imu_msg.header().frame_id("imu_link");
+
+    // Inbound (data received)
     iit::advrf::MotorState in_state;
+    iit::advrf::ImuState in_imu;
 
-    // Outbound
+    // Outbound (data sent)
     iit::advrf::MotorCmd out_cmd;
     out_cmd.mutable_motors()->Reserve(12);
     for (int i = 0; i < 12; ++i)
         out_cmd.add_motors();
-
+    
     uint8_t ser_buf[PROTO_MAX_BYTES];
     ProtoSlot slot{};
 
@@ -95,64 +79,51 @@ int main() {
     const struct timespec dt{0, 500000}; // poll at 2 kHz
 
     while (!g_stop) {
-        auto samples = reader.take();
-        for (auto const& s : samples) {
-            if (!s.info().valid()) 
+        // Retrieve data from RT SHM and Publish JointState
+        while (bridge->joint_state.try_pop(slot)) {
+            if (slot.size == 0 || slot.size > PROTO_MAX_BYTES) 
                 continue;
 
-            const auto& msg = s.data();
-            out_cmd.set_sec(msg.header().stamp().sec());
-            out_cmd.set_nanosec(msg.header().stamp().nanosec());
-            const auto& pos = msg.position();
-            const auto& vel = msg.velocity();
-            const auto& eff = msg.effort();
-            for (size_t i = 0; i < 12; ++i) {
-                auto* m = out_cmd.mutable_motors(i);
-                m->set_pos_ref(static_cast<float>(pos[i]));
-                (void)vel;
-                (void)eff;
-            }
-            
-            const int bytes = static_cast<int>(out_cmd.ByteSizeLong());
-            if (bytes > 0 && bytes <= static_cast<int>(PROTO_MAX_BYTES)) {
-                out_cmd.SerializeToArray(ser_buf, bytes);
-                slot.size = static_cast<uint32_t>(bytes);
-                std::memcpy(slot.data, ser_buf, bytes);
-                bridge->dds_to_rt.try_push(slot);
-            }
-        }
-
-        ProtoSlot in_slot{};
-        while (bridge->rt_to_dds.try_pop(in_slot)) {
-            if (in_slot.size == 0 || in_slot.size > PROTO_MAX_BYTES) 
-                continue;
-
-            if (!in_state.ParseFromArray(in_slot.data, static_cast<int>(in_slot.size))) 
+            if (!in_state.ParseFromArray(slot.data, static_cast<int>(slot.size))) 
                 continue;  
 
-            out_msg.header().stamp().sec(in_state.sec());
-            out_msg.header().stamp().nanosec(in_state.nanosec());
+            js_msg.header().stamp().sec(in_state.sec());
+            js_msg.header().stamp().nanosec(in_state.nanosec());
             for (int i = 0; i < 12; ++i) {
                 const auto& m = in_state.motors(i);
-                out_msg.position()[i] = static_cast<double>(m.link_pos());
-                out_msg.velocity()[i] = static_cast<double>(m.link_vel());
-                out_msg.effort()[i]   = static_cast<double>(m.torque());
+                js_msg.position()[i] = static_cast<double>(m.link_pos());
+                js_msg.velocity()[i] = static_cast<double>(m.link_vel());
+                js_msg.effort()[i]   = static_cast<double>(m.torque());
             }
-            writer.write(out_msg);
+            js_writer.write(js_msg);
+        }
+
+        // Retrieve data from RT SHM and Publish Imu
+        while (bridge->imu.try_pop(slot)) {
+            if (slot.size == 0 || slot.size > PROTO_MAX_BYTES) 
+                
+            continue;
+            if (!in_imu.ParseFromArray(slot.data, static_cast<int>(slot.size))) 
+                continue;
+
+            imu_msg.header().stamp().sec(in_imu.sec());
+            imu_msg.header().stamp().nanosec(in_imu.nanosec());
+            imu_msg.orientation().x(static_cast<double>(in_imu.orient_x()));
+            imu_msg.orientation().y(static_cast<double>(in_imu.orient_y()));
+            imu_msg.orientation().z(static_cast<double>(in_imu.orient_z()));
+            imu_msg.orientation().w(static_cast<double>(in_imu.orient_w()));
+            imu_msg.angular_velocity().x(static_cast<double>(in_imu.ang_vel_x()));
+            imu_msg.angular_velocity().y(static_cast<double>(in_imu.ang_vel_y()));
+            imu_msg.angular_velocity().z(static_cast<double>(in_imu.ang_vel_z()));
+            imu_msg.linear_acceleration().x(static_cast<double>(in_imu.lin_acc_x()));
+            imu_msg.linear_acceleration().y(static_cast<double>(in_imu.lin_acc_y()));
+            imu_msg.linear_acceleration().z(static_cast<double>(in_imu.lin_acc_z()));
+            imu_writer.write(imu_msg);
         }
 
         nanosleep(&dt, nullptr);
     }
-
     std::cout << "[DDS] Shutting down.\n";
-    bridge->~SharedBridge();
 
-    munmap(ptr, sizeof(SharedBridge));
-
-    // Unlink the shared memory object (removes /spot_rt_bridge from /dev/shm).
-    // Even if the peer process is still using the object, this is okay. 
-    // The object will be removed only after all open references are closed
-    shm_unlink(SHM_NAME);
-    
     return 0;
 }

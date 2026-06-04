@@ -1,0 +1,19 @@
+syntax = "proto3";
+
+package iit.advrf;
+
+// 48 bytes per imu
+message ImuState {
+  float orient_x  = 1;
+  float orient_y  = 2;
+  float orient_z  = 3;
+  float orient_w  = 4;
+  float ang_vel_x = 5;
+  float ang_vel_y = 6;
+  float ang_vel_z = 7;
+  float lin_acc_x = 8;
+  float lin_acc_y = 9;
+  float lin_acc_z = 10;
+  int32  sec      = 11;
+  uint32 nanosec  = 12;
+}

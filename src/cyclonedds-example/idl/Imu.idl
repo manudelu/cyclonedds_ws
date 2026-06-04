@@ -1,0 +1,18 @@
+#include "Quaternion.idl"
+#include "Vector3.idl"
+#include "Header.idl"
+
+module sensor_msgs {
+  module msg {
+    module dds_ {
+        @final
+        struct Imu_ {
+            std_msgs::msg::dds_::Header_ header;
+            geometry_msgs::msg::dds_::Quaternion_ orientation;
+            geometry_msgs::msg::dds_::Vector3_ angular_velocity;
+            geometry_msgs::msg::dds_::Vector3_ linear_acceleration;
+        };
+    };
+  };
+};
+

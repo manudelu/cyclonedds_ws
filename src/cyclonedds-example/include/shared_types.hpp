@@ -4,7 +4,6 @@
 #include <cstdint>
 #include <cstddef>
 
-// Allocate more than 250bytes for headroom
 static constexpr size_t PROTO_MAX_BYTES = 512;
 struct ProtoSlot {
     uint32_t size{0};
@@ -58,10 +57,12 @@ struct SPSCQueue {
 };
 
 struct SharedBridge {
-    SPSCQueue<ProtoSlot, 64> dds_to_rt;   
-    SPSCQueue<ProtoSlot, 64> rt_to_dds;  
-    std::atomic<bool> dds_ready{false};
-    std::atomic<bool> rt_ready{false};
+    SPSCQueue<ProtoSlot, 64> cmd;   
+    SPSCQueue<ProtoSlot, 64> joint_state;  
+    SPSCQueue<ProtoSlot, 64> imu;
+
+    alignas(64) std::atomic<bool> dds_ready{false};
+    alignas(64) std::atomic<bool> rt_ready{false};
 };
 
 static constexpr const char* SHM_NAME = "/spot_rt_bridge";
