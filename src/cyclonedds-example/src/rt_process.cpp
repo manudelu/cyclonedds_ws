@@ -24,7 +24,6 @@ int main() {
     }
 
     SharedMemoryOwner shm(SHM_NAME, sizeof(SharedBridge));
-    // Placement-new to initialise atomics correctly in shared memory
     SharedBridge* bridge = new(shm.raw_ptr()) SharedBridge();
 
     // Wait for DDS process to be ready
