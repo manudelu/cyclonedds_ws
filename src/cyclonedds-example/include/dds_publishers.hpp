@@ -70,6 +70,50 @@ protected:
 };
 
 // ============================================================================
+// CLASSE BASE SUBSCRIBER
+// ============================================================================
+template <typename Msg, typename Derived>
+class DdsSubscriber {
+public:
+    DdsSubscriber() 
+        : subscriber_(dds::core::null), 
+          topic_(dds::core::null), 
+          reader_(dds::core::null) 
+    {}
+
+    virtual ~DdsSubscriber() = default;
+
+protected:
+    bool init_dds(const std::string& topic_name, dds::domain::DomainParticipant& participant) {
+        try {
+            topic_ = dds::topic::Topic<Msg>(participant, topic_name);
+
+            subscriber_ = dds::sub::Subscriber(participant);
+
+            dds::sub::qos::DataReaderQos qos = static_cast<Derived*>(this)->reader_qos();
+    
+            reader_ = dds::sub::DataReader<Msg>(subscriber_, topic_, qos);
+            reader_.listener(static_cast<Derived*>(this), dds::core::status::StatusMask::data_available());
+            
+            return true;
+        } catch (const dds::core::Exception& e) {
+            std::cerr << "DDS Sub Init Error [" << topic_name << "]: " << e.what() << '\n';
+            return false;
+        }
+    }
+
+    dds::sub::qos::DataReaderQos reader_qos() {
+        return dds::sub::qos::DataReaderQos()
+            << dds::core::policy::Reliability::BestEffort()
+            << dds::core::policy::History::KeepLast(1);
+    }
+
+    dds::sub::Subscriber subscriber_;
+    dds::topic::Topic<Msg> topic_;
+    dds::sub::DataReader<Msg> reader_;
+};
+
+// ============================================================================
 // JOINT STATE PUBLISHER
 // ============================================================================
 class JointStatePublisher : public DdsPublisher<JointStateMsg, JointStatePublisher> {
@@ -174,7 +218,7 @@ private:
     ImuPublisher imu_pub_;
 
 public:
-    DDSPublisherManager(int32_t domain_id, const std::string& robot_name)
+    DDSPublisherManager(uint32_t domain_id, const std::string& robot_name)
         : dp_(domain_id) 
     {
         if (!js_pub_.init(robot_name, dp_)) {

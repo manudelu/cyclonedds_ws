@@ -15,7 +15,7 @@
 #include "JointState.hpp"
 #include "Imu.hpp"
 
-int32_t DOMAIN_ID {42};
+uint32_t DOMAIN_ID {42};
 
 static std::atomic<bool> g_stop{false};
 void handle_sig(int) { g_stop = true; }
@@ -25,8 +25,13 @@ int main() {
     signal(SIGTERM, handle_sig);
 
     SharedMemoryClient shm(SHM_NAME, sizeof(SharedBridge));
-    SharedBridge* bridge = shm.get<SharedBridge>();
 
+
+    SharedBridge* bridge = shm.get<SharedBridge>();
+    if (!shm.is_valid()) {
+        std::cerr << "[DDS] Failed to open Shared Memory.\n";
+        return 1;
+    }
     DDSPublisherManager dds_manager(DOMAIN_ID, "spot");
 
     // Inbound (data received)
@@ -66,6 +71,7 @@ int main() {
         while (bridge->imu.try_pop(slot)) {
             if (slot.size == 0 || slot.size > PROTO_MAX_BYTES)   
                 continue;
+
             if (in_imu.ParseFromArray(slot.data, static_cast<int>(slot.size))) 
                 dds_manager.publish_imu(in_imu);
         }
