@@ -53,7 +53,7 @@ int main() {
     bridge->rt_ready.store(true, std::memory_order_release);
     std::cout << "[RT] Bridge active. Promoting process to Hard Real-Time.\n";
 
-    // Hard Real-Time Promotion
+    // Hard Real-Time Promotion !!
     struct sched_param param;
     param.sched_priority = 80;
     if (pthread_setschedparam(pthread_self(), SCHED_FIFO, &param) != 0) {
@@ -63,30 +63,20 @@ int main() {
     }
     pthread_setname_np(pthread_self(), "RT_Control");
 
-    // Outbound (data sent)
-    iit::advrf::MotorState out_state;
-    out_state.mutable_motors()->Reserve(12);
+    // Outbound (data sent to DDS)
+    iit::advrf::MotorState joint_state;
+    joint_state.mutable_motors()->Reserve(12);
     for (int i = 0; i < 12; ++i)
-        out_state.add_motors();
+        joint_state.add_motors();
 
-    iit::advrf::ImuState out_imu;  
+    iit::advrf::ImuState imu;  
 
-    // Inbound (data received)
-    iit::advrf::MotorCmd in_cmd;
+    // Inbound (data received from DDS)
+    iit::advrf::MotorCmd joint_trajectory;
 
-    uint8_t ser_buf[PROTO_MAX_BYTES];
-    ProtoSlot slot{};
-    
-    auto pack_and_push = [&](const auto& msg, auto& queue) {
-        int bytes = static_cast<int>(msg.ByteSizeLong());
-        if (bytes > 0 && bytes <= static_cast<int>(PROTO_MAX_BYTES)) {
-            msg.SerializeToArray(ser_buf, bytes);
-            slot.size = static_cast<uint32_t>(bytes);
-            std::memcpy(slot.data, ser_buf, bytes);
-            queue.try_push(slot);
-        }
-    };
+    ShmProtoHelper proto;
 
+    // "Control" variables
     double pos = 0.0;
     bool incremental = true;
 
@@ -95,11 +85,8 @@ int main() {
 
     while (!g_stop.load(std::memory_order_relaxed)) {
 
-        // Drain inbound — keep freshest
-        while (bridge->cmd.try_pop(slot)) {
-            if (slot.size > 0 && slot.size <= PROTO_MAX_BYTES)
-                in_cmd.ParseFromArray(slot.data, static_cast<int>(slot.size));
-        }
+        // Drain inbound — keep freshest (read commands from ROS2)
+        proto.parse_latest(bridge->cmd, joint_trajectory);
 
         // Joint State ""Control Logic""
         if (incremental) { 
@@ -113,31 +100,32 @@ int main() {
                 incremental = true;  
         }
 
+        // Calculate ROS2 compatible timestamps
         long long current_loop_mono_ns = (long long)next.tv_sec * 1'000'000'000LL + next.tv_nsec;
         long long ros2_compliant_ns = current_loop_mono_ns + ros2_time_offset_ns;
 
         int32_t  ros2_sec  = static_cast<int32_t>(ros2_compliant_ns / 1'000'000'000LL);
         uint32_t ros2_nsec = static_cast<uint32_t>(ros2_compliant_ns % 1'000'000'000LL);
 
-        // Joint State
-        out_state.set_sec(ros2_sec);
-        out_state.set_nanosec(ros2_nsec);
+        // Ex: Write Joint State to DDS
+        joint_state.set_sec(ros2_sec);
+        joint_state.set_nanosec(ros2_nsec);
         for (int i = 0; i < 12; ++i) {
-            auto* motor = out_state.mutable_motors(i);
+            auto* motor = joint_state.mutable_motors(i);
             motor->set_link_pos(static_cast<float>(pos));
             motor->set_link_vel(0.0f);
             motor->set_torque(0.0f);
         }
-        pack_and_push(out_state, bridge->joint_state);
+        proto.push(bridge->joint_state, joint_state);
 
-        // Imu
-        out_imu.set_sec(ros2_sec);
-        out_imu.set_nanosec(ros2_nsec);
-        out_imu.set_orient_w(1.0f);  
-        out_imu.set_orient_x(0.0f);
-        out_imu.set_orient_y(0.0f);
-        out_imu.set_orient_z(0.0f);
-        pack_and_push(out_imu, bridge->imu);
+        // Ex: Write Imu to DDS
+        imu.set_sec(ros2_sec);
+        imu.set_nanosec(ros2_nsec);
+        imu.set_orient_w(1.0f);  
+        imu.set_orient_x(0.0f);
+        imu.set_orient_y(0.0f);
+        imu.set_orient_z(0.0f);
+        proto.push(bridge->imu, imu);
 
         next.tv_nsec += 1'000'000LL;
         if (next.tv_nsec >= 1'000'000'000L) {

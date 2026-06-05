@@ -7,13 +7,15 @@
 
 #include "JointState.hpp"
 #include "Imu.hpp"
+#include "JointTrajectory.hpp"
 
 #include "motor.pb.h"
 #include "imu.pb.h"
 
-using TimeMsg       = ::builtin_interfaces::msg::dds_::Time_;
-using JointStateMsg = ::sensor_msgs::msg::dds_::JointState_;
-using ImuMsg        = ::sensor_msgs::msg::dds_::Imu_;
+using TimeMsg            = ::builtin_interfaces::msg::dds_::Time_;
+using JointStateMsg      = ::sensor_msgs::msg::dds_::JointState_;
+using ImuMsg             = ::sensor_msgs::msg::dds_::Imu_;
+using JointTrajectoryMsg = ::trajectory_msgs::msg::dds_::JointTrajectory_;
 
 // ============================================================================
 //  BASE CLASS PUBLISHER
@@ -97,7 +99,6 @@ protected:
     
             /* Now, the reader can be created to subscribe to a message. */
             reader_ = dds::sub::DataReader<Msg>(subscriber_, topic_, qos);
-            reader_.listener(static_cast<Derived*>(this), dds::core::status::StatusMask::data_available());
             
             return true;
         } 
@@ -169,6 +170,38 @@ private:
 };
 
 // ============================================================================
+// JOINT TRAJECTORY SUBSCRIBER
+// ============================================================================
+class JointTrajectorySubscriber : public DdsSubscriber<JointTrajectoryMsg, JointTrajectorySubscriber> {
+public:
+    using Base = DdsSubscriber<JointTrajectoryMsg, JointTrajectorySubscriber>;
+    friend Base;
+
+    JointTrajectorySubscriber() : Base() {}
+
+    bool init(const std::string& robot_name, dds::domain::DomainParticipant& participant) {
+        const std::string topic_name = "rt/advrf/" + robot_name + "/joint_trajectory";
+        return Base::init_dds(topic_name, participant);
+    }
+
+    // ????
+    bool take(JointTrajectoryMsg& out_msg) {
+        try {
+            auto samples = reader_.take();
+            for (const auto& sample : samples) {
+                if (sample.info().valid()) {
+                    out_msg = sample.data();
+                    return true; 
+                }
+            }
+        } catch (const dds::core::Exception& e) {
+            std::cerr << "[JointTrajectorySubscriber] Read error: " << e.what() << '\n';
+        }
+        return false;
+    }
+};
+
+// ============================================================================
 // IMU PUBLISHER
 // ============================================================================
 class ImuPublisher : public DdsPublisher<ImuMsg, ImuPublisher> {
@@ -222,19 +255,22 @@ private:
     dds::domain::DomainParticipant dp_;
     JointStatePublisher js_pub_;
     ImuPublisher imu_pub_;
+    JointTrajectorySubscriber jt_sub_;
 
 public:
     DDSPublisherManager(uint32_t domain_id, const std::string& robot_name)
         : dp_(domain_id) 
     {
-        if (!js_pub_.init(robot_name, dp_)) {
-            std::cerr << "[DDS Manager] Fallimento init JointStatePublisher\n";
-        }
-        if (!imu_pub_.init(robot_name, dp_)) {
-            std::cerr << "[DDS Manager] Fallimento init ImuPublisher\n";
-        }
+        if (!js_pub_.init(robot_name, dp_)) 
+            std::cerr << "[DDS Manager] Failed to initialize JointStatePublisher\n";
+        if (!imu_pub_.init(robot_name, dp_))
+            std::cerr << "[DDS Manager] Failed to initialize ImuPublisher\n";
+        if (!jt_sub_.init(robot_name, dp_)) 
+            std::cerr << "[DDS Manager] Failed to initialize JointTrajectorySubscriber\n";
     }
 
     void publish_joint_state(const iit::advrf::MotorState& proto) { js_pub_.publish(proto); }
-    void publish_imu(const iit::advrf::ImuState& proto)         { imu_pub_.publish(proto); }
+    void publish_imu(const iit::advrf::ImuState& proto) { imu_pub_.publish(proto); }
+
+    bool take_joint_trajectory(JointTrajectoryMsg& out) { return jt_sub_.take(out); }
 };

@@ -8,10 +8,10 @@ message Motor_rx_pdo {
     float torque   = 3;
 }
 
-message Motor_px_pdo {
-    float pos_ref = 1;
-    int32 gainP   = 2;
-    int32 gainD   = 3;
+message Motor_tx_pdo {
+    float pos_ref     = 1;
+    float vel_ref     = 2; 
+    float torque_ffwd = 3; 
 }
 
 // 20 bytes per motor (e.g., 20bytes*12 = 250bytes)
@@ -22,7 +22,7 @@ message MotorState {
 }
 
 message MotorCmd {
-  repeated Motor_px_pdo motors = 1;  
+  repeated Motor_tx_pdo motors = 1;  
   int32  sec                   = 2;
   uint32 nanosec               = 3;
 }
