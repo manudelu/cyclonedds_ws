@@ -1,0 +1,17 @@
+#include "Duration.idl"
+
+module trajectory_msgs {
+  module msg {
+    module dds_ {
+        @final
+        struct JointTrajectoryPoint_ {
+            sequence<double> positions;
+            sequence<double> velocities;
+            sequence<double> accelerations;
+            sequence<double> effort;
+            builtin_interfaces::msg::dds_::Duration_ time_from_start;
+        };
+    };
+  };
+};
+

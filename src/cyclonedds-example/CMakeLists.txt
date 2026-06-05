@@ -36,6 +36,9 @@ set(IDL_FILES
     "idl/Quaternion.idl"
     "idl/Vector3.idl"
     "idl/Imu.idl"
+    "idl/Duration.idl"
+    "idl/JointTrajectoryPoint.idl"
+    "idl/JointTrajectory.idl"
 )
 
 idlcxx_generate(

@@ -1,6 +1,6 @@
 #include "shared_types.hpp"
 #include "shm_utils.hpp"
-#include "dds_publishers.hpp"
+#include "dds_bridge.hpp"
 #include "motor.pb.h"
 #include "imu.pb.h"
 
@@ -25,13 +25,12 @@ int main() {
     signal(SIGTERM, handle_sig);
 
     SharedMemoryClient shm(SHM_NAME, sizeof(SharedBridge));
-
-
-    SharedBridge* bridge = shm.get<SharedBridge>();
     if (!shm.is_valid()) {
         std::cerr << "[DDS] Failed to open Shared Memory.\n";
         return 1;
     }
+    SharedBridge* bridge = shm.get<SharedBridge>();
+
     DDSPublisherManager dds_manager(DOMAIN_ID, "spot");
 
     // Inbound (data received)

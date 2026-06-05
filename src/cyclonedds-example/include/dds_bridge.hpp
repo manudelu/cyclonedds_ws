@@ -86,22 +86,28 @@ public:
 protected:
     bool init_dds(const std::string& topic_name, dds::domain::DomainParticipant& participant) {
         try {
+            /* To subscribe to something, a topic is needed. */
             topic_ = dds::topic::Topic<Msg>(participant, topic_name);
 
+            /* A reader also needs a publisher. */
             subscriber_ = dds::sub::Subscriber(participant);
 
+            /* It is possible to modify writer default QoS */
             dds::sub::qos::DataReaderQos qos = static_cast<Derived*>(this)->reader_qos();
     
+            /* Now, the reader can be created to subscribe to a message. */
             reader_ = dds::sub::DataReader<Msg>(subscriber_, topic_, qos);
             reader_.listener(static_cast<Derived*>(this), dds::core::status::StatusMask::data_available());
             
             return true;
-        } catch (const dds::core::Exception& e) {
+        } 
+        catch (const dds::core::Exception& e) {
             std::cerr << "DDS Sub Init Error [" << topic_name << "]: " << e.what() << '\n';
             return false;
         }
     }
 
+    /* QoS here is set as default to Best Effort and Keep Last = 1 for every writer */
     dds::sub::qos::DataReaderQos reader_qos() {
         return dds::sub::qos::DataReaderQos()
             << dds::core::policy::Reliability::BestEffort()
