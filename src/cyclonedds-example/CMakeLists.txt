@@ -28,6 +28,8 @@ separate_arguments(XENO_LDFLAGS)
 find_package(CycloneDDS REQUIRED)
 find_package(CycloneDDS-CXX REQUIRED)
 find_package(Protobuf REQUIRED)
+find_package(PkgConfig REQUIRED)
+pkg_check_modules(ZMQ REQUIRED libzmq)
 
 set(IDL_FILES 
     "idl/Time.idl" 
@@ -52,17 +54,18 @@ set(PROTO_FILES
 ) 
 protobuf_generate_cpp(PROTO_SRCS PROTO_HDRS ${PROTO_FILES})
 
-add_executable(dds_process 
-    src/dds_process.cpp
+add_executable(bridge_main 
+    src/bridge_main.cpp
     ${PROTO_SRCS}
 )
-target_include_directories(dds_process PRIVATE 
+target_include_directories(bridge_main PRIVATE 
     ${CMAKE_CURRENT_BINARY_DIR}
     include/
 ) 
-target_link_libraries(dds_process
+target_link_libraries(bridge_main
     CycloneDDS-CXX::ddscxx
     msgs_types
+    ${ZMQ_LIBRARIES} 
     pthread rt
     protobuf::libprotobuf
 )

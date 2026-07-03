@@ -1,16 +1,12 @@
 #pragma once
+#include "mw_adapter.hpp"
 
 #include <dds/dds.hpp>
-#include <string>
-#include <vector>
-#include <iostream>
-
 #include "JointState.hpp"
 #include "Imu.hpp"
 #include "JointTrajectory.hpp"
 
-#include "motor.pb.h"
-#include "imu.pb.h"
+#include <iostream>
 
 using TimeMsg            = ::builtin_interfaces::msg::dds_::Time_;
 using JointStateMsg      = ::sensor_msgs::msg::dds_::JointState_;
@@ -248,29 +244,59 @@ private:
 };
 
 // ============================================================================
-// CENTRAL MANAGER
+// DDS ADAPTER
 // ============================================================================
-class DDSPublisherManager {
+
+class DdsAdapter : public MiddlewareAdapter {
+public:
+    static constexpr uint32_t DOMAIN_ID = 0;
+
+    bool init(const std::string& robot_name) override {
+        dp_ = dds::domain::DomainParticipant(DOMAIN_ID);
+
+        // TODO: Choose which to create based on what devices I have
+        if (!js_pub_.init(robot_name, dp_))
+            std::cerr << "[DDS] Failed to init JointStatePublisher\n";
+        if (!imu_pub_.init(robot_name, dp_))
+            std::cerr << "[DDS] Failed to init ImuPublisher\n";
+        if (!jt_sub_.init(robot_name, dp_))
+            std::cerr << "[DDS] Failed to init JointTrajectorySubscriber\n";  
+
+        cmd_.mutable_motors()->Reserve(12);
+        for (int i = 0; i < 12; ++i)
+            cmd_.add_motors();
+
+        return true;
+    }
+
+    void publish_joint_state(const iit::advrf::MotorState& msg) override {
+        js_pub_.publish(msg);
+    }
+
+    void publish_imu(const iit::advrf::ImuState& msg) override {
+        imu_pub_.publish(msg);
+    }
+
+    bool take_joint_command(iit::advrf::MotorCmd& out) override {
+        JointTrajectoryMsg jt_msg;
+        if (!jt_sub_.take(jt_msg) || jt_msg.points().empty()) 
+            return false;
+
+        const auto& pt = jt_msg.points()[0];
+        for (int i = 0; i < 12; ++i) {
+            auto* m = out.mutable_motors(i);
+            m->set_pos_ref(i < (int)pt.positions().size()  ? static_cast<float>(pt.positions()[i])  : 0.0f);
+            m->set_vel_ref(i < (int)pt.velocities().size() ? static_cast<float>(pt.velocities()[i]) : 0.0f);
+            m->set_torque_ffwd(i < (int)pt.effort().size() ? static_cast<float>(pt.effort()[i])     : 0.0f);
+        }
+        out = cmd_;  // carry pre-allocated structure
+        return true;
+    }
+
 private:
-    dds::domain::DomainParticipant dp_;
+    dds::domain::DomainParticipant dp_{dds::core::null};
     JointStatePublisher js_pub_;
     ImuPublisher imu_pub_;
     JointTrajectorySubscriber jt_sub_;
-
-public:
-    DDSPublisherManager(uint32_t domain_id, const std::string& robot_name)
-        : dp_(domain_id) 
-    {
-        if (!js_pub_.init(robot_name, dp_)) 
-            std::cerr << "[DDS Manager] Failed to initialize JointStatePublisher\n";
-        if (!imu_pub_.init(robot_name, dp_))
-            std::cerr << "[DDS Manager] Failed to initialize ImuPublisher\n";
-        if (!jt_sub_.init(robot_name, dp_)) 
-            std::cerr << "[DDS Manager] Failed to initialize JointTrajectorySubscriber\n";
-    }
-
-    void publish_joint_state(const iit::advrf::MotorState& proto) { js_pub_.publish(proto); }
-    void publish_imu(const iit::advrf::ImuState& proto) { imu_pub_.publish(proto); }
-
-    bool take_joint_trajectory(JointTrajectoryMsg& out) { return jt_sub_.take(out); }
+    iit::advrf::MotorCmd cmd_;
 };

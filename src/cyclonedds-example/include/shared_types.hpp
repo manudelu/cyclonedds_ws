@@ -5,7 +5,7 @@
 #include <cstddef>
 #include <cstring>
 
-static constexpr const char* SHM_NAME = "/spot_rt_bridge";
+static constexpr const char* SHM_NAME = "/rt_bridge";
 
 template<typename T, size_t N>
 struct SPSCQueue {
@@ -64,7 +64,7 @@ struct SharedBridge {
     SPSCQueue<ProtoSlot, 64> joint_state;  
     SPSCQueue<ProtoSlot, 64> imu;
 
-    alignas(64) std::atomic<bool> dds_ready{false};
+    alignas(64) std::atomic<bool> mw_ready{false};
     alignas(64) std::atomic<bool> rt_ready{false};
 };
 

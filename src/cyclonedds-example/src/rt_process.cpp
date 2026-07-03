@@ -30,10 +30,10 @@ int main() {
     }
     SharedBridge* bridge = new(shm.raw_ptr()) SharedBridge();
 
-    // Handshake: Wait for DDS process to be ready 
+    // Handshake: Wait for process to be ready 
     // Note: here we will have mode switches since we are still non real time
-    std::cout << "[RT] Waiting for DDS process...\n";
-    while (!bridge->dds_ready.load(std::memory_order_acquire) && !g_stop)
+    std::cout << "[RT] Waiting for process...\n";
+    while (!bridge->mw_ready.load(std::memory_order_acquire) && !g_stop)
         usleep(1000);
 
     if (g_stop) {
@@ -55,8 +55,8 @@ int main() {
 
     // Hard Real-Time Promotion !!
     struct sched_param param;
-    param.sched_priority = 80;
-    if (pthread_setschedparam(pthread_self(), SCHED_FIFO, &param) != 0) {
+    param.sched_priority = 0;//80;
+    if (pthread_setschedparam(pthread_self(), SCHED_OTHER, &param) != 0) {
         perror("[RT] Failed to set thread priority.");
         bridge->~SharedBridge();
         return 1;
