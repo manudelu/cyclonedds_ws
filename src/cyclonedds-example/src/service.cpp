@@ -1,28 +1,37 @@
 #include <iostream>
 #include <thread>
 #include <chrono>
+
 #include <dds/dds.hpp>
 #include "dds/dds.h"
 #include "Trigger.hpp"
 
 int DOMAIN_ID {42};
 
-int main(int argc, char** argv) {
+int main(int argc, char** argv)
+{
     dds::domain::DomainParticipant dp(DOMAIN_ID);
 
-    dds::topic::Topic<std_srvs::srv::dds_::Trigger_Request_>
+    using Request = advrf_interfaces::srv::dds_::Trigger_Request_;
+    using Response = advrf_interfaces::srv::dds_::Trigger_Response_;
+
+    dds::topic::Topic<Request>
         req_topic(dp, "rq/advrf/spot/startRequest");
-    dds::topic::Topic<std_srvs::srv::dds_::Trigger_Response_>
+
+    dds::topic::Topic<Response>
         rep_topic(dp, "rr/advrf/spot/startReply");
 
-    dds::sub::DataReader<std_srvs::srv::dds_::Trigger_Request_> reader(
-        dds::sub::Subscriber(dp), req_topic,
+    dds::sub::DataReader<Request> reader(
+        dds::sub::Subscriber(dp),
+        req_topic,
         dds::sub::qos::DataReaderQos()
             << dds::core::policy::Reliability::Reliable()
             << dds::core::policy::History::KeepLast(10)
     );
-    dds::pub::DataWriter<std_srvs::srv::dds_::Trigger_Response_> writer(
-        dds::pub::Publisher(dp), rep_topic,
+
+    dds::pub::DataWriter<Response> writer(
+        dds::pub::Publisher(dp),
+        rep_topic,
         dds::pub::qos::DataWriterQos()
             << dds::core::policy::Reliability::Reliable()
             << dds::core::policy::History::KeepLast(10)
@@ -33,23 +42,34 @@ int main(int argc, char** argv) {
 
     std::cout << "[Service] Ready.\n";
 
-    std_srvs::srv::dds_::Trigger_Request_ request{};
+    Request request{};
     void* raw[1] = { &request };
     dds_sample_info_t info[1];
 
     while (true) {
         int n = dds_take(c_reader, raw, info, 1, 1);
+
         for (int i = 0; i < n; ++i) {
-            if (!info[i].valid_data) continue;
+            if (!info[i].valid_data) {
+                continue;
+            }
 
-            std::cout << "[Service] Request received.\n";
+            std::cout << "[Service] Request received: "
+                      << request.msg()
+                      << std::endl;
 
-            std_srvs::srv::dds_::Trigger_Response_ reply{};
+            Response reply{};
+
+            reply.request_id(request.request_id());
+
             reply.success(true);
             reply.message("OK");
 
             dds_write(c_writer, &reply);
         }
+
         std::this_thread::sleep_for(std::chrono::milliseconds(10));
     }
+
+    return 0;
 }

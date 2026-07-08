@@ -1,15 +1,25 @@
-module std_srvs {
+module advrf_interfaces {
   module srv {
     module dds_ {
-        @final
-        struct Trigger_Request_ {
-        uint8 structure_needs_at_least_one_member;
-        };
-        @final
-        struct Trigger_Response_ {
+      @final
+      struct RequestHeader_ {
+        unsigned long long guid;
+        long long seq;
+      };
+
+      @final
+      struct Trigger_Request_ {
+        RequestHeader_ request_id;
+        sequence<double> values;
+        string msg;
+      };
+
+      @final
+      struct Trigger_Response_ {
+        RequestHeader_ request_id;
         boolean success;
         string message;
-        };
+      };
     };
   };
 };
